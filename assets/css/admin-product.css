@@ -1,0 +1,244 @@
+/**
+ * Admin Product Styles
+ *
+ * Styles for the rental vehicle product admin interface
+ *
+ * @package WooCommerce_Car_Rental
+ * @since 1.0.0
+ */
+
+/* Rental Vehicle Tabs - Icons using dashicons */
+.product_data_tabs .rental_details_tab a:before,
+.product_data_tabs .rental_rates_tab a:before,
+.product_data_tabs .rental_availability_tab a:before,
+.product_data_tabs .rental_services_tab a:before,
+.product_data_tabs .rental_insurance_tab a:before,
+.product_data_tabs .rental_settings_tab a:before {
+    font-family: 'dashicons';
+    content: '\f111';
+    font-size: 16px;
+    line-height: 1;
+    font-weight: 400;
+    width: 16px;
+    height: 16px;
+}
+
+.product_data_tabs .rental_details_tab a:before {
+    content: '\f237'; /* Car icon */
+}
+
+.product_data_tabs .rental_rates_tab a:before {
+    content: '\f174'; /* Money icon */
+}
+
+.product_data_tabs .rental_availability_tab a:before {
+    content: '\f508'; /* Calendar icon */
+}
+
+.product_data_tabs .rental_services_tab a:before {
+    content: '\f308'; /* Tools icon */
+}
+
+.product_data_tabs .rental_insurance_tab a:before {
+    content: '\f332'; /* Shield icon */
+}
+
+.product_data_tabs .rental_settings_tab a:before {
+    content: '\f111'; /* Settings icon */
+}
+
+/* 
+ * Tab visibility is now handled natively by WooCommerce
+ * using the show_if_rental_vehicle class
+ */
+
+/* Panel Styling */
+.woocommerce_options_panel h3 {
+    margin: 20px 12px 10px;
+    padding: 10px 0;
+    border-bottom: 1px solid #eee;
+    font-size: 14px;
+    font-weight: 600;
+    color: #23282d;
+}
+
+.woocommerce_options_panel h3:first-child {
+    margin-top: 10px;
+}
+
+/* Repeater Container */
+.wcrbtw-repeater-container {
+    margin: 12px;
+    padding: 10px;
+    background: #f9f9f9;
+    border: 1px solid #e5e5e5;
+    border-radius: 3px;
+}
+
+.wcrbtw-repeater-table {
+    margin-bottom: 10px;
+    background: #fff;
+    width: 100%;
+    border-collapse: collapse;
+}
+
+.wcrbtw-repeater-table th {
+    padding: 10px;
+    text-align: left;
+    font-weight: 600;
+    background: #f1f1f1;
+}
+
+.wcrbtw-repeater-table td {
+    padding: 8px 10px;
+    vertical-align: middle;
+}
+
+.wcrbtw-repeater-table tbody tr {
+    border-bottom: 1px solid #e5e5e5;
+}
+
+.wcrbtw-repeater-table tbody tr:hover {
+    background: #f9f9f9;
+}
+
+.wcrbtw-repeater-table input[type="text"],
+.wcrbtw-repeater-table input[type="number"],
+.wcrbtw-repeater-table input[type="date"],
+.wcrbtw-repeater-table select,
+.wcrbtw-repeater-table textarea {
+    width: 100%;
+    max-width: 100%;
+}
+
+.wcrbtw-repeater-table input[type="checkbox"] {
+    margin: 0;
+}
+
+.wcrbtw-repeater-table textarea {
+    resize: vertical;
+}
+
+.wcrbtw-repeater-table .button {
+    white-space: nowrap;
+}
+
+.wcrbtw-repeater-container .toolbar {
+    margin: 10px 0 0;
+    padding: 10px 0 0;
+    border-top: 1px solid #e5e5e5;
+}
+
+/* Sortable rows */
+.wcrbtw-repeater-row {
+    cursor: move;
+}
+
+.wcrbtw-repeater-row.ui-sortable-helper {
+    background: #f9f9f9;
+    border: 1px solid #dfdfdf;
+    opacity: 0.8;
+}
+
+/* Calendar Container */
+.wcrbtw-calendar-container {
+    margin: 12px;
+}
+
+.wcrbtw-calendar-container textarea {
+    width: 100%;
+    max-width: 500px;
+}
+
+/* Checkboxes Group */
+.wcrbtw-checkboxes {
+    display: block;
+    margin-top: 5px;
+}
+
+.wcrbtw-checkboxes label {
+    display: inline-block;
+    margin-right: 15px;
+    margin-bottom: 5px;
+}
+
+/* Settings Summary */
+.wcrbtw-settings-summary {
+    margin: 12px;
+    padding: 15px;
+    background: #f7f7f7;
+    border-left: 4px solid #2271b1;
+    border-radius: 2px;
+}
+
+.wcrbtw-settings-summary ul {
+    margin-top: 10px;
+}
+
+.wcrbtw-settings-summary li {
+    margin-bottom: 5px;
+    color: #555;
+}
+
+/* Form Field Adjustments */
+#rental_details_data .options_group,
+#rental_rates_data .options_group,
+#rental_availability_data .options_group,
+#rental_services_data .options_group,
+#rental_insurance_data .options_group,
+#rental_settings_data .options_group {
+    padding: 10px 0;
+}
+
+/* Price input styling */
+.wcrbtw-repeater-table .wc_input_price {
+    text-align: right;
+    width: 100px !important;
+}
+
+/* Small inputs */
+.wcrbtw-repeater-table input[type="number"][style*="width: 60px"] {
+    width: 60px !important;
+}
+
+/* Button styles */
+.wcrbtw-add-row {
+    margin-right: 10px;
+}
+
+.wcrbtw-remove-row {
+    color: #a00;
+    cursor: pointer;
+}
+
+.wcrbtw-remove-row:hover {
+    color: #dc3232;
+    border-color: #dc3232;
+}
+
+/* Responsive adjustments */
+@media screen and (max-width: 782px) {
+    .wcrbtw-repeater-table {
+        font-size: 12px;
+    }
+    
+    .wcrbtw-repeater-table th,
+    .wcrbtw-repeater-table td {
+        padding: 5px;
+    }
+    
+    .wcrbtw-checkboxes label {
+        display: block;
+        margin-right: 0;
+    }
+}
+
+/* Tooltip enhancement */
+.woocommerce-help-tip {
+    margin-left: 5px;
+}
+
+/* 
+ * Panel visibility is handled natively by WooCommerce
+ * using the show_if_rental_vehicle class on panels
+ */
