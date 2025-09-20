@@ -294,30 +294,95 @@ final class WCRBTW_Admin_Product_Data {
      * @return void
      */
     private function save_rates_data( int $post_id ): void {
-        // Base daily rate - individual meta
-        if ( isset( $_POST['_rental_base_daily_rate'] ) ) {
-            update_post_meta( $post_id, '_wcrbtw_base_daily_rate', wc_format_decimal( $_POST['_rental_base_daily_rate'] ) );
+        // Base daily rate - support both legacy and new field prefixes.
+        $base_rate_field = null;
+
+        if ( isset( $_POST['_wcrbtw_base_daily_rate'] ) ) {
+            $base_rate_field = '_wcrbtw_base_daily_rate';
+        } elseif ( isset( $_POST['_rental_base_daily_rate'] ) ) {
+            $base_rate_field = '_rental_base_daily_rate';
         }
 
-        // Seasonal rates - save as JSON for structured data
-        if ( isset( $_POST['_rental_seasonal_rates'] ) && is_array( $_POST['_rental_seasonal_rates'] ) ) {
-            $seasonal_rates = array();
-            
-            foreach ( $_POST['_rental_seasonal_rates'] as $index => $rate_data ) {
-                if ( ! empty( $rate_data['name'] ) ) {
+        if ( null !== $base_rate_field ) {
+            $base_daily_rate_value = wp_unslash( $_POST[ $base_rate_field ] );
+
+            if ( is_array( $base_daily_rate_value ) ) {
+                $base_daily_rate_value = '';
+            }
+
+            $base_daily_rate = wc_format_decimal( $base_daily_rate_value );
+            update_post_meta( $post_id, '_wcrbtw_base_daily_rate', $base_daily_rate );
+        }
+
+        // Seasonal rates - save as JSON for structured data and support both prefixes.
+        $seasonal_rates_field = null;
+
+        if ( isset( $_POST['_wcrbtw_seasonal_rates'] ) && is_array( $_POST['_wcrbtw_seasonal_rates'] ) ) {
+            $seasonal_rates_field = '_wcrbtw_seasonal_rates';
+        } elseif ( isset( $_POST['_rental_seasonal_rates'] ) && is_array( $_POST['_rental_seasonal_rates'] ) ) {
+            $seasonal_rates_field = '_rental_seasonal_rates';
+        }
+
+        if ( null !== $seasonal_rates_field ) {
+            $seasonal_rates_input = wp_unslash( $_POST[ $seasonal_rates_field ] );
+
+            if ( is_array( $seasonal_rates_input ) ) {
+                $seasonal_rates = array();
+
+                foreach ( $seasonal_rates_input as $rate_data ) {
+                    if ( ! is_array( $rate_data ) ) {
+                        continue;
+                    }
+
+                    $name = '';
+                    if ( isset( $rate_data['name'] ) && ! is_array( $rate_data['name'] ) ) {
+                        $name = sanitize_text_field( $rate_data['name'] );
+                    }
+
+                    if ( '' === $name ) {
+                        continue;
+                    }
+
+                    $start_date = '';
+                    if ( isset( $rate_data['start_date'] ) && ! is_array( $rate_data['start_date'] ) ) {
+                        $start_date = sanitize_text_field( $rate_data['start_date'] );
+                    }
+
+                    $end_date = '';
+                    if ( isset( $rate_data['end_date'] ) && ! is_array( $rate_data['end_date'] ) ) {
+                        $end_date = sanitize_text_field( $rate_data['end_date'] );
+                    }
+
+                    $rate_value = 0;
+                    if ( isset( $rate_data['rate'] ) && ! is_array( $rate_data['rate'] ) ) {
+                        $rate_value = $rate_data['rate'];
+                    }
+                    $rate = wc_format_decimal( $rate_value );
+
+                    $priority_value = 0;
+                    if ( isset( $rate_data['priority'] ) && ! is_array( $rate_data['priority'] ) ) {
+                        $priority_value = $rate_data['priority'];
+                    }
+                    $priority = absint( $priority_value );
+
+                    $recurring = '';
+                    if ( isset( $rate_data['recurring'] ) && ! is_array( $rate_data['recurring'] ) ) {
+                        $recurring = sanitize_text_field( $rate_data['recurring'] );
+                    }
+
                     $seasonal_rates[] = array(
-                        'name'       => sanitize_text_field( $rate_data['name'] ),
-                        'start_date' => sanitize_text_field( $rate_data['start_date'] ?? '' ),
-                        'end_date'   => sanitize_text_field( $rate_data['end_date'] ?? '' ),
-                        'rate'       => wc_format_decimal( $rate_data['rate'] ?? 0 ),
-                        'priority'   => absint( $rate_data['priority'] ?? 0 ),
-                        'recurring'  => isset( $rate_data['recurring'] ) ? 'yes' : 'no',
+                        'name'       => $name,
+                        'start_date' => $start_date,
+                        'end_date'   => $end_date,
+                        'rate'       => $rate,
+                        'priority'   => $priority,
+                        'recurring'  => in_array( $recurring, array( '1', 'yes', 'on', 'true' ), true ) ? 'yes' : 'no',
                     );
                 }
+
+                // Save as JSON string for better compatibility.
+                update_post_meta( $post_id, '_wcrbtw_seasonal_rates', wp_json_encode( $seasonal_rates ) );
             }
-            
-            // Save as JSON string for better compatibility
-            update_post_meta( $post_id, '_wcrbtw_seasonal_rates', wp_json_encode( $seasonal_rates ) );
         }
     }
 
