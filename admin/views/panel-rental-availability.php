@@ -12,8 +12,127 @@ if ( ! defined( 'ABSPATH' ) ) {
     exit;
 }
 
-// Get saved data
-$availability = get_post_meta( $product_id, '_rental_availability', true ) ?: array();
+// Helper to normalize stored meta values into arrays.
+if ( ! function_exists( 'wcrbtw_maybe_decode_meta_array' ) ) {
+    /**
+     * Attempt to decode a stored meta value into an array.
+     *
+     * @param mixed $value Stored meta value.
+     * @return array
+     */
+    function wcrbtw_maybe_decode_meta_array( $value ): array {
+        if ( empty( $value ) && '0' !== $value ) {
+            return array();
+        }
+
+        if ( is_array( $value ) ) {
+            return $value;
+        }
+
+        if ( is_string( $value ) ) {
+            $trimmed_value = trim( $value );
+
+            if ( '' === $trimmed_value ) {
+                return array();
+            }
+
+            $decoded = json_decode( $trimmed_value, true );
+            if ( is_array( $decoded ) ) {
+                return $decoded;
+            }
+
+            if ( function_exists( 'maybe_unserialize' ) ) {
+                $unserialized = maybe_unserialize( $value );
+                if ( is_array( $unserialized ) ) {
+                    return $unserialized;
+                }
+            }
+
+            $lines = array_filter(
+                array_map( 'trim', preg_split( '/[\r\n]+/', $value ) )
+            );
+
+            if ( ! empty( $lines ) ) {
+                return array_values( $lines );
+            }
+        }
+
+        return array();
+    }
+}
+
+// Prepare availability data from new meta keys.
+$blocked_dates_meta_exists    = metadata_exists( 'post', $product_id, '_wcrbtw_blocked_dates' );
+$quantity_periods_meta_exists = metadata_exists( 'post', $product_id, '_wcrbtw_quantity_periods' );
+$weekly_closures_meta_exists  = metadata_exists( 'post', $product_id, '_wcrbtw_weekly_closures' );
+$maintenance_meta_exists      = metadata_exists( 'post', $product_id, '_wcrbtw_maintenance_notes' );
+
+$blocked_dates = wcrbtw_maybe_decode_meta_array(
+    $blocked_dates_meta_exists ? get_post_meta( $product_id, '_wcrbtw_blocked_dates', true ) : null
+);
+
+$quantity_periods = wcrbtw_maybe_decode_meta_array(
+    $quantity_periods_meta_exists ? get_post_meta( $product_id, '_wcrbtw_quantity_periods', true ) : null
+);
+
+$weekly_closures = wcrbtw_maybe_decode_meta_array(
+    $weekly_closures_meta_exists ? get_post_meta( $product_id, '_wcrbtw_weekly_closures', true ) : null
+);
+
+$maintenance_notes = $maintenance_meta_exists
+    ? get_post_meta( $product_id, '_wcrbtw_maintenance_notes', true )
+    : '';
+
+// Legacy fallbacks using previous `_rental_*` meta keys when new data is not present.
+$legacy_availability = wcrbtw_maybe_decode_meta_array( get_post_meta( $product_id, '_rental_availability', true ) );
+
+if ( ! $blocked_dates_meta_exists ) {
+    if ( empty( $blocked_dates ) ) {
+        $blocked_dates = wcrbtw_maybe_decode_meta_array( get_post_meta( $product_id, '_rental_blocked_dates', true ) );
+    }
+
+    if ( empty( $blocked_dates ) && isset( $legacy_availability['blocked_dates'] ) ) {
+        $blocked_dates = wcrbtw_maybe_decode_meta_array( $legacy_availability['blocked_dates'] );
+    }
+}
+
+if ( ! $quantity_periods_meta_exists ) {
+    if ( empty( $quantity_periods ) ) {
+        $quantity_periods = wcrbtw_maybe_decode_meta_array( get_post_meta( $product_id, '_rental_quantity_periods', true ) );
+    }
+
+    if ( empty( $quantity_periods ) && isset( $legacy_availability['quantity_periods'] ) ) {
+        $quantity_periods = wcrbtw_maybe_decode_meta_array( $legacy_availability['quantity_periods'] );
+    }
+}
+
+if ( ! $weekly_closures_meta_exists ) {
+    if ( empty( $weekly_closures ) ) {
+        $weekly_closures = wcrbtw_maybe_decode_meta_array( get_post_meta( $product_id, '_rental_weekly_closures', true ) );
+    }
+
+    if ( empty( $weekly_closures ) && isset( $legacy_availability['weekly_closures'] ) ) {
+        $weekly_closures = wcrbtw_maybe_decode_meta_array( $legacy_availability['weekly_closures'] );
+    }
+}
+
+if ( ! $maintenance_meta_exists ) {
+    if ( '' === $maintenance_notes ) {
+        $maintenance_notes = get_post_meta( $product_id, '_rental_maintenance_notes', true );
+    }
+
+    if ( '' === $maintenance_notes && isset( $legacy_availability['maintenance_notes'] ) ) {
+        $legacy_maintenance = $legacy_availability['maintenance_notes'];
+        $maintenance_notes  = is_scalar( $legacy_maintenance ) ? (string) $legacy_maintenance : '';
+    }
+}
+
+$availability = array(
+    'blocked_dates'     => $blocked_dates,
+    'quantity_periods'  => $quantity_periods,
+    'weekly_closures'   => $weekly_closures,
+    'maintenance_notes' => $maintenance_notes,
+);
 ?>
 
 <div id="rental_availability_data" class="panel woocommerce_options_panel show_if_rental_vehicle hidden">
