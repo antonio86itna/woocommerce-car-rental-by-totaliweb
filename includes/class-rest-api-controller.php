@@ -208,24 +208,42 @@ final class WCRBTW_REST_API_Controller {
     public function get_vehicles( WP_REST_Request $request ): WP_REST_Response|WP_Error {
         $args = array(
             'post_type'      => 'product',
+            'post_status'    => 'publish',
             'posts_per_page' => $request->get_param( 'per_page' ) ?? 10,
             'paged'          => $request->get_param( 'page' ) ?? 1,
-            'meta_query'     => array(
+            'tax_query'      => array(
                 array(
-                    'key'     => '_product_type',
-                    'value'   => 'rental_vehicle',
-                    'compare' => '=',
+                    'taxonomy' => 'product_type',
+                    'field'    => 'slug',
+                    'terms'    => array( 'rental_vehicle' ),
                 ),
             ),
         );
 
+        $meta_query = array();
+
         // Add filters
-        if ( $vehicle_type = $request->get_param( 'vehicle_type' ) ) {
-            $args['meta_query'][] = array(
-                'key'     => '_rental_vehicle_type',
-                'value'   => $vehicle_type,
-                'compare' => '=',
+        $vehicle_type = $request->get_param( 'vehicle_type' );
+        if ( $vehicle_type ) {
+            $vehicle_type = sanitize_text_field( (string) $vehicle_type );
+            $meta_query['relation'] = 'AND';
+            $meta_query[]           = array(
+                'relation' => 'OR',
+                array(
+                    'key'     => '_wcrbtw_vehicle_type',
+                    'value'   => $vehicle_type,
+                    'compare' => '=',
+                ),
+                array(
+                    'key'     => '_rental_vehicle_type',
+                    'value'   => $vehicle_type,
+                    'compare' => '=',
+                ),
             );
+        }
+
+        if ( ! empty( $meta_query ) ) {
+            $args['meta_query'] = $meta_query;
         }
 
         $query = new WP_Query( $args );
@@ -367,17 +385,27 @@ final class WCRBTW_REST_API_Controller {
         }
 
         // Get availability data
-        $availability_data = get_post_meta( $vehicle_id, '_rental_availability', true ) ?: array();
-        
+        $availability_data = function_exists( 'wcrbtw_get_vehicle_availability' )
+            ? wcrbtw_get_vehicle_availability( $vehicle_id )
+            : array();
+
+        $blocked_dates     = isset( $availability_data['blocked_dates'] ) ? (array) $availability_data['blocked_dates'] : array();
+        $quantity_periods  = isset( $availability_data['quantity_periods'] ) ? (array) $availability_data['quantity_periods'] : array();
+        $weekly_closures   = isset( $availability_data['weekly_closures'] ) ? (array) $availability_data['weekly_closures'] : array();
+        $maintenance_notes = isset( $availability_data['maintenance_notes'] ) ? (string) $availability_data['maintenance_notes'] : '';
+
         // Check availability for date range
         $is_available = $this->check_availability( $vehicle_id, $start_date, $end_date );
 
         return new WP_REST_Response( array(
-            'vehicle_id' => $vehicle_id,
-            'start_date' => $start_date,
-            'end_date'   => $end_date,
-            'available'  => $is_available,
-            'blocked_dates' => $availability_data['blocked_dates'] ?? array(),
+            'vehicle_id'        => $vehicle_id,
+            'start_date'        => $start_date,
+            'end_date'          => $end_date,
+            'available'         => $is_available,
+            'blocked_dates'     => array_values( $blocked_dates ),
+            'quantity_periods'  => array_values( $quantity_periods ),
+            'weekly_closures'   => array_values( $weekly_closures ),
+            'maintenance_notes' => $maintenance_notes,
         ) );
     }
 
@@ -480,21 +508,324 @@ final class WCRBTW_REST_API_Controller {
      * @return void
      */
     private function update_vehicle_data( WC_Product_Rental_Vehicle $product, WP_REST_Request $request ): void {
+        $product_id = $product->get_id();
+
         // Update price
-        if ( $request->get_param( 'price' ) ) {
-            $product->set_regular_price( wc_format_decimal( $request->get_param( 'price' ) ) );
+        if ( $request->has_param( 'price' ) ) {
+            $price = $request->get_param( 'price' );
+
+            if ( is_array( $price ) ) {
+                $price = '';
+            }
+
+            $product->set_regular_price( wc_format_decimal( $price ) );
         }
 
-        // Update rental-specific meta
-        $meta_fields = array( 'details', 'rates', 'availability', 'services', 'insurance', 'settings' );
-        
-        foreach ( $meta_fields as $field ) {
-            if ( $request->get_param( $field ) ) {
-                update_post_meta( 
-                    $product->get_id(), 
-                    "_rental_{$field}", 
-                    $request->get_param( $field ) 
-                );
+        // Vehicle details
+        if ( $request->has_param( 'details' ) ) {
+            $details = $request->get_param( 'details' );
+
+            if ( is_array( $details ) ) {
+                if ( array_key_exists( 'vehicle_type', $details ) ) {
+                    $value = $details['vehicle_type'];
+                    update_post_meta( $product_id, '_wcrbtw_vehicle_type', is_scalar( $value ) ? sanitize_text_field( (string) $value ) : '' );
+                }
+
+                if ( array_key_exists( 'seats', $details ) ) {
+                    $value = $details['seats'];
+                    update_post_meta( $product_id, '_wcrbtw_seats', absint( $value ) );
+                }
+
+                if ( array_key_exists( 'fuel_type', $details ) ) {
+                    $value = $details['fuel_type'];
+                    update_post_meta( $product_id, '_wcrbtw_fuel_type', is_scalar( $value ) ? sanitize_text_field( (string) $value ) : '' );
+                }
+
+                if ( array_key_exists( 'transmission', $details ) ) {
+                    $value = $details['transmission'];
+                    update_post_meta( $product_id, '_wcrbtw_transmission', is_scalar( $value ) ? sanitize_text_field( (string) $value ) : '' );
+                }
+
+                if ( array_key_exists( 'fleet_quantity', $details ) ) {
+                    $value = $details['fleet_quantity'];
+                    update_post_meta( $product_id, '_wcrbtw_fleet_quantity', absint( $value ) );
+                }
+
+                if ( array_key_exists( 'additional_details', $details ) ) {
+                    $value = $details['additional_details'];
+                    update_post_meta( $product_id, '_wcrbtw_additional_details', is_scalar( $value ) ? wp_kses_post( (string) $value ) : '' );
+                }
+            }
+        }
+
+        // Rates
+        if ( $request->has_param( 'rates' ) ) {
+            $rates = $request->get_param( 'rates' );
+
+            if ( is_array( $rates ) ) {
+                if ( array_key_exists( 'base_daily_rate', $rates ) ) {
+                    $value = $rates['base_daily_rate'];
+                    if ( is_array( $value ) ) {
+                        $value = '';
+                    }
+
+                    update_post_meta( $product_id, '_wcrbtw_base_daily_rate', wc_format_decimal( $value ) );
+                }
+
+                if ( array_key_exists( 'seasonal_rates', $rates ) ) {
+                    $seasonal_rates = array();
+
+                    if ( is_array( $rates['seasonal_rates'] ) ) {
+                        foreach ( $rates['seasonal_rates'] as $rate_data ) {
+                            if ( ! is_array( $rate_data ) ) {
+                                continue;
+                            }
+
+                            $name = '';
+                            if ( isset( $rate_data['name'] ) && ! is_array( $rate_data['name'] ) ) {
+                                $name = sanitize_text_field( (string) $rate_data['name'] );
+                            }
+
+                            if ( '' === $name ) {
+                                continue;
+                            }
+
+                            $start_date = '';
+                            if ( isset( $rate_data['start_date'] ) && ! is_array( $rate_data['start_date'] ) ) {
+                                $start_date = sanitize_text_field( (string) $rate_data['start_date'] );
+                            }
+
+                            $end_date = '';
+                            if ( isset( $rate_data['end_date'] ) && ! is_array( $rate_data['end_date'] ) ) {
+                                $end_date = sanitize_text_field( (string) $rate_data['end_date'] );
+                            }
+
+                            $rate_value = 0;
+                            if ( isset( $rate_data['rate'] ) && ! is_array( $rate_data['rate'] ) ) {
+                                $rate_value = $rate_data['rate'];
+                            }
+
+                            $priority_value = 0;
+                            if ( isset( $rate_data['priority'] ) && ! is_array( $rate_data['priority'] ) ) {
+                                $priority_value = $rate_data['priority'];
+                            }
+
+                            $recurring_flag = $rate_data['recurring'] ?? 'no';
+                            if ( function_exists( 'wcrbtw_is_meta_flag_enabled' ) ) {
+                                $recurring = wcrbtw_is_meta_flag_enabled( $recurring_flag ) ? 'yes' : 'no';
+                            } else {
+                                $recurring = in_array( $recurring_flag, array( '1', 'yes', 'on', 'true' ), true ) ? 'yes' : 'no';
+                            }
+
+                            $seasonal_rates[] = array(
+                                'name'       => $name,
+                                'start_date' => $start_date,
+                                'end_date'   => $end_date,
+                                'rate'       => wc_format_decimal( $rate_value ),
+                                'priority'   => absint( $priority_value ),
+                                'recurring'  => $recurring,
+                            );
+                        }
+                    }
+
+                    update_post_meta( $product_id, '_wcrbtw_seasonal_rates', wp_json_encode( $seasonal_rates ) );
+                }
+            }
+        }
+
+        // Availability
+        if ( $request->has_param( 'availability' ) ) {
+            $availability = $request->get_param( 'availability' );
+
+            if ( is_array( $availability ) ) {
+                if ( array_key_exists( 'blocked_dates', $availability ) ) {
+                    $blocked_dates = array();
+
+                    if ( is_array( $availability['blocked_dates'] ) ) {
+                        foreach ( $availability['blocked_dates'] as $date ) {
+                            if ( is_scalar( $date ) ) {
+                                $blocked_dates[] = sanitize_text_field( (string) $date );
+                            }
+                        }
+                    }
+
+                    update_post_meta( $product_id, '_wcrbtw_blocked_dates', wp_json_encode( $blocked_dates ) );
+                }
+
+                if ( array_key_exists( 'quantity_periods', $availability ) ) {
+                    $quantity_periods = array();
+
+                    if ( is_array( $availability['quantity_periods'] ) ) {
+                        foreach ( $availability['quantity_periods'] as $period ) {
+                            if ( ! is_array( $period ) ) {
+                                continue;
+                            }
+
+                            $start_date = '';
+                            if ( isset( $period['start_date'] ) && ! is_array( $period['start_date'] ) ) {
+                                $start_date = sanitize_text_field( (string) $period['start_date'] );
+                            }
+
+                            if ( '' === $start_date ) {
+                                continue;
+                            }
+
+                            $end_date = '';
+                            if ( isset( $period['end_date'] ) && ! is_array( $period['end_date'] ) ) {
+                                $end_date = sanitize_text_field( (string) $period['end_date'] );
+                            }
+
+                            $quantity_value = $period['quantity'] ?? 0;
+
+                            $quantity_periods[] = array(
+                                'start_date' => $start_date,
+                                'end_date'   => $end_date,
+                                'quantity'   => absint( $quantity_value ),
+                            );
+                        }
+                    }
+
+                    update_post_meta( $product_id, '_wcrbtw_quantity_periods', wp_json_encode( $quantity_periods ) );
+                }
+
+                if ( array_key_exists( 'weekly_closures', $availability ) ) {
+                    $weekly_closures = array();
+
+                    if ( is_array( $availability['weekly_closures'] ) ) {
+                        foreach ( $availability['weekly_closures'] as $day ) {
+                            $weekly_closures[] = absint( $day );
+                        }
+                    }
+
+                    update_post_meta( $product_id, '_wcrbtw_weekly_closures', wp_json_encode( $weekly_closures ) );
+                }
+
+                if ( array_key_exists( 'maintenance_notes', $availability ) ) {
+                    $value = $availability['maintenance_notes'];
+                    update_post_meta( $product_id, '_wcrbtw_maintenance_notes', is_scalar( $value ) ? wp_kses_post( (string) $value ) : '' );
+                }
+            }
+        }
+
+        // Services
+        if ( $request->has_param( 'services' ) ) {
+            $services = $request->get_param( 'services' );
+            $sanitized_services = array();
+
+            if ( is_array( $services ) ) {
+                foreach ( $services as $service ) {
+                    if ( ! is_array( $service ) ) {
+                        continue;
+                    }
+
+                    $name = isset( $service['name'] ) && ! is_array( $service['name'] ) ? sanitize_text_field( (string) $service['name'] ) : '';
+
+                    if ( '' === $name ) {
+                        continue;
+                    }
+
+                    $price_type = isset( $service['price_type'] ) && ! is_array( $service['price_type'] ) ? sanitize_text_field( (string) $service['price_type'] ) : 'flat';
+                    $price      = isset( $service['price'] ) && ! is_array( $service['price'] ) ? wc_format_decimal( $service['price'] ) : wc_format_decimal( 0 );
+                    $description = isset( $service['description'] ) && ! is_array( $service['description'] ) ? wp_kses_post( (string) $service['description'] ) : '';
+                    $enabled_flag = $service['enabled'] ?? 'no';
+
+                    if ( function_exists( 'wcrbtw_is_meta_flag_enabled' ) ) {
+                        $enabled = wcrbtw_is_meta_flag_enabled( $enabled_flag ) ? 'yes' : 'no';
+                    } else {
+                        $enabled = in_array( $enabled_flag, array( '1', 'yes', 'on', 'true' ), true ) ? 'yes' : 'no';
+                    }
+
+                    $sanitized_services[] = array(
+                        'name'        => $name,
+                        'price_type'  => $price_type,
+                        'price'       => $price,
+                        'description' => $description,
+                        'enabled'     => $enabled,
+                    );
+                }
+            }
+
+            update_post_meta( $product_id, '_wcrbtw_services', wp_json_encode( $sanitized_services ) );
+        }
+
+        // Insurance
+        if ( $request->has_param( 'insurance' ) ) {
+            $insurance = $request->get_param( 'insurance' );
+            $sanitized_insurance = array();
+
+            if ( is_array( $insurance ) ) {
+                foreach ( $insurance as $option ) {
+                    if ( ! is_array( $option ) ) {
+                        continue;
+                    }
+
+                    $name = isset( $option['name'] ) && ! is_array( $option['name'] ) ? sanitize_text_field( (string) $option['name'] ) : '';
+
+                    if ( '' === $name ) {
+                        continue;
+                    }
+
+                    $cost_type  = isset( $option['cost_type'] ) && ! is_array( $option['cost_type'] ) ? sanitize_text_field( (string) $option['cost_type'] ) : 'daily';
+                    $cost       = isset( $option['cost'] ) && ! is_array( $option['cost'] ) ? wc_format_decimal( $option['cost'] ) : wc_format_decimal( 0 );
+                    $deductible = isset( $option['deductible'] ) && ! is_array( $option['deductible'] ) ? wc_format_decimal( $option['deductible'] ) : wc_format_decimal( 0 );
+                    $description = isset( $option['description'] ) && ! is_array( $option['description'] ) ? wp_kses_post( (string) $option['description'] ) : '';
+                    $enabled_flag = $option['enabled'] ?? 'no';
+
+                    if ( function_exists( 'wcrbtw_is_meta_flag_enabled' ) ) {
+                        $enabled = wcrbtw_is_meta_flag_enabled( $enabled_flag ) ? 'yes' : 'no';
+                    } else {
+                        $enabled = in_array( $enabled_flag, array( '1', 'yes', 'on', 'true' ), true ) ? 'yes' : 'no';
+                    }
+
+                    $sanitized_insurance[] = array(
+                        'name'        => $name,
+                        'cost_type'   => $cost_type,
+                        'cost'        => $cost,
+                        'deductible'  => $deductible,
+                        'description' => $description,
+                        'enabled'     => $enabled,
+                    );
+                }
+            }
+
+            update_post_meta( $product_id, '_wcrbtw_insurance', wp_json_encode( $sanitized_insurance ) );
+        }
+
+        // Settings
+        if ( $request->has_param( 'settings' ) ) {
+            $settings = $request->get_param( 'settings' );
+
+            if ( is_array( $settings ) ) {
+                if ( array_key_exists( 'min_days', $settings ) ) {
+                    update_post_meta( $product_id, '_wcrbtw_min_days', absint( $settings['min_days'] ) );
+                }
+
+                if ( array_key_exists( 'max_days', $settings ) ) {
+                    update_post_meta( $product_id, '_wcrbtw_max_days', absint( $settings['max_days'] ) );
+                }
+
+                if ( array_key_exists( 'extra_day_hour', $settings ) ) {
+                    update_post_meta( $product_id, '_wcrbtw_extra_day_hour', absint( $settings['extra_day_hour'] ) );
+                }
+
+                if ( array_key_exists( 'security_deposit', $settings ) ) {
+                    $value = $settings['security_deposit'];
+                    if ( is_array( $value ) ) {
+                        $value = '';
+                    }
+
+                    update_post_meta( $product_id, '_wcrbtw_security_deposit', wc_format_decimal( $value ) );
+                }
+
+                if ( array_key_exists( 'cancellation_policy', $settings ) ) {
+                    $value = $settings['cancellation_policy'];
+                    update_post_meta( $product_id, '_wcrbtw_cancellation_policy', is_scalar( $value ) ? wp_kses_post( (string) $value ) : '' );
+                }
+
+                if ( array_key_exists( 'additional_settings', $settings ) ) {
+                    $value = $settings['additional_settings'];
+                    update_post_meta( $product_id, '_wcrbtw_additional_settings', is_scalar( $value ) ? wp_kses_post( (string) $value ) : '' );
+                }
             }
         }
     }
@@ -509,19 +840,59 @@ final class WCRBTW_REST_API_Controller {
      * @return bool
      */
     private function check_availability( int $vehicle_id, string $start_date, string $end_date ): bool {
-        $availability_data = get_post_meta( $vehicle_id, '_rental_availability', true ) ?: array();
-        $blocked_dates = $availability_data['blocked_dates'] ?? array();
+        if ( function_exists( 'wcrbtw_is_vehicle_available' ) ) {
+            return wcrbtw_is_vehicle_available( $vehicle_id, $start_date, $end_date );
+        }
+
+        $availability_data = function_exists( 'wcrbtw_get_vehicle_availability' )
+            ? wcrbtw_get_vehicle_availability( $vehicle_id )
+            : array();
+
+        $blocked_dates    = isset( $availability_data['blocked_dates'] ) ? (array) $availability_data['blocked_dates'] : array();
+        $weekly_closures  = isset( $availability_data['weekly_closures'] ) ? (array) $availability_data['weekly_closures'] : array();
+        $quantity_periods = isset( $availability_data['quantity_periods'] ) ? (array) $availability_data['quantity_periods'] : array();
 
         // Convert date strings to DateTime objects
-        $start = new DateTime( $start_date );
-        $end = new DateTime( $end_date );
-        $interval = new DateInterval( 'P1D' );
-        $date_range = new DatePeriod( $start, $interval, $end->modify( '+1 day' ) );
+        $start     = new DateTime( $start_date );
+        $end       = new DateTime( $end_date );
+        $interval  = new DateInterval( 'P1D' );
+        $date_iter = new DatePeriod( $start, $interval, ( clone $end )->modify( '+1 day' ) );
 
-        // Check if any date in range is blocked
-        foreach ( $date_range as $date ) {
-            if ( in_array( $date->format( 'Y-m-d' ), $blocked_dates, true ) ) {
+        // Check if any date in range is blocked or within weekly closures
+        foreach ( $date_iter as $date ) {
+            $date_string = $date->format( 'Y-m-d' );
+            $day_of_week = (int) $date->format( 'w' );
+
+            if ( in_array( $date_string, $blocked_dates, true ) ) {
                 return false;
+            }
+
+            if ( in_array( $day_of_week, $weekly_closures, true ) ) {
+                return false;
+            }
+        }
+
+        if ( ! empty( $quantity_periods ) && function_exists( 'wcrbtw_get_booked_quantity' ) ) {
+            foreach ( $quantity_periods as $period ) {
+                if ( empty( $period['start_date'] ) || empty( $period['end_date'] ) ) {
+                    continue;
+                }
+
+                try {
+                    $period_start = new DateTime( (string) $period['start_date'] );
+                    $period_end   = new DateTime( (string) $period['end_date'] );
+                } catch ( Exception $exception ) {
+                    continue;
+                }
+
+                if ( $start <= $period_end && $end >= $period_start ) {
+                    $available_qty = isset( $period['quantity'] ) ? absint( $period['quantity'] ) : 0;
+                    $booked_qty    = wcrbtw_get_booked_quantity( $vehicle_id, $start_date, $end_date );
+
+                    if ( $booked_qty >= $available_qty && 0 !== $available_qty ) {
+                        return false;
+                    }
+                }
             }
         }
 
