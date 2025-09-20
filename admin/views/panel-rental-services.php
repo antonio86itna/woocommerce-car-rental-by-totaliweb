@@ -12,8 +12,65 @@ if ( ! defined( 'ABSPATH' ) ) {
     exit;
 }
 
-// Get saved data
-$services = get_post_meta( $product_id, '_rental_services', true ) ?: array();
+// Helper to normalize stored meta values into arrays.
+if ( ! function_exists( 'wcrbtw_maybe_decode_meta_array' ) ) {
+    /**
+     * Attempt to decode a stored meta value into an array.
+     *
+     * @param mixed $value Stored meta value.
+     * @return array
+     */
+    function wcrbtw_maybe_decode_meta_array( $value ): array {
+        if ( empty( $value ) && '0' !== $value ) {
+            return array();
+        }
+
+        if ( is_array( $value ) ) {
+            return $value;
+        }
+
+        if ( is_string( $value ) ) {
+            $trimmed_value = trim( $value );
+
+            if ( '' === $trimmed_value ) {
+                return array();
+            }
+
+            $decoded = json_decode( $trimmed_value, true );
+            if ( is_array( $decoded ) ) {
+                return $decoded;
+            }
+
+            if ( function_exists( 'maybe_unserialize' ) ) {
+                $unserialized = maybe_unserialize( $value );
+                if ( is_array( $unserialized ) ) {
+                    return $unserialized;
+                }
+            }
+
+            $lines = array_filter(
+                array_map( 'trim', preg_split( '/[\r\n]+/', $value ) )
+            );
+
+            if ( ! empty( $lines ) ) {
+                return array_values( $lines );
+            }
+        }
+
+        return array();
+    }
+}
+
+// Get saved data from new meta keys, falling back to legacy `_rental_*` when needed.
+$services_meta_exists = metadata_exists( 'post', $product_id, '_wcrbtw_services' );
+$services             = $services_meta_exists
+    ? wcrbtw_maybe_decode_meta_array( get_post_meta( $product_id, '_wcrbtw_services', true ) )
+    : array();
+
+if ( ! $services_meta_exists ) {
+    $services = wcrbtw_maybe_decode_meta_array( get_post_meta( $product_id, '_rental_services', true ) );
+}
+
 $currency = get_woocommerce_currency_symbol();
 ?>
 
